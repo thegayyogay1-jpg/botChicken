@@ -7,34 +7,35 @@ app.use(express.urlencoded({ extended: true }));
 // ==========================================
 // 📌 1. ตั้งค่าตัวแปรระบบและ Global Variables
 // ==========================================
-const ADMIN_LIST = ['U4a0d60e9af37aa9fe66cf3e97d01cddb']; // 👈 ใส่ LINE User ID ของแอดมิน
-const COMMISSION_RATE = 0.00; // ค่าน้ำ 5% (ถ้าไม่ต้องการให้ใส่ 0)
+const ADMIN_LIST = ['U1234567890abcdef1234567890abcdef']; // 👈 ใส่ LINE User ID ของแอดมิน
+const COMMISSION_RATE = 0.05; // ค่าน้ำ 5%
 
 let usersWallets = {};
 let nextMemberId = 1;
 
-// ตัวแปรตั้งค่าระบบแบบตายตัว
+// ตัวแปรตั้งค่าระบบ
 let defaultMaxLegs = 8;     // ค่าเริ่มต้น 8 ขา
 let defaultBetPrice = 10;   // ค่าเริ่มต้น ขาละ 10 บาท
+let isAutoLockLeg = false;  // 🔒 สถานะโหมดล็อคขา (เริ่มต้น: false = แย่งลงขา)
 
 // ตัวแปรควบคุมรอบการเล่น
 let isRoundOpen = false;
-let occupiedLegs = {};     // เก็บสถานะขา { 1: userId, 2: userId, ... }
-let roundBets = {};        // เก็บรายละเอียดการแทงของแต่ละคน
+let occupiedLegs = {};      // เก็บสถานะขา { 1: userId, 2: userId, ... }
+let roundBets = {};         // เก็บรายละเอียดการแทงของแต่ละคน
+let previousOccupiedLegs = {}; // 💾 บันทึกขาของรอบล่าสุดเอาไว้ใช้ตอนล็อคขา
 let pendingResults = null;
 
 // ==========================================
-// 📌 2. ฟังก์ชัน helper สร้างชื่อแสดงผล (เลขสมาชิก + ชื่อเล่น)
+// 📌 2. ฟังก์ชัน Helper
 // ==========================================
 function getUserDisplayName(user) {
     if (!user) return "ไม่มีผู้เล่น";
     if (user.nickname) {
-        return `${user.memberNumber}.${user.nickname}`; // เช่น "1.ต้น"
+        return `${user.memberNumber}.${user.nickname}`;
     }
     return `สมาชิกที่ ${user.memberNumber}`;
 }
 
-// ฟังก์ชันแปลงผลไพ่
 function parseCardValue(token) {
     if (!token) return { score: 0, deng: 1 };
     let str = token.trim().toLowerCase();
@@ -97,8 +98,31 @@ app.post('/callback', async (req, res) => {
                     replyMessageObject = { type: 'text', text: "❌ คุณไม่ใช่แอดมิน ไม่มีสิทธิ์ใช้คำสั่งนี้ครับ" };
                 } else {
                     usersWallets = {}; nextMemberId = 1; isRoundOpen = false; 
-                    occupiedLegs = {}; roundBets = {}; pendingResults = null;
+                    occupiedLegs = {}; roundBets = {}; previousOccupiedLegs = {}; pendingResults = null;
                     replyMessageObject = { type: 'text', text: "👑 [แอดมิน] ♻️ ล้างระบบสมาชิกและกระดานเรียบร้อยแล้วครับ!" };
+                }
+            }
+            // ⚙️ [คำสั่งแอดมิน] เปิด/ปิด โหมดล็อคขา
+            else if (userMsg === 'ล็อคขา' || userMsg === 'lock' || userMsg === 'เปิดล็อคขา') {
+                if (!isAdmin) {
+                    replyMessageObject = { type: 'text', text: "❌ คุณไม่ใช่แอดมิน!" };
+                } else {
+                    isAutoLockLeg = true;
+                    replyMessageObject = { 
+                        type: 'text', 
+                        text: `👑 [แอดมิน - สลับโหมด]\n🔒 **เปิดใช้งานระบบล็อคขาประจำเรียบร้อย!**\n\n📌 *เมื่อพิมพ์ 'o' เปิดรอบ ระบบจะดึงขาจากรอบที่แล้วมาลงให้อัตโนมัติทันทีครับ*` 
+                    };
+                }
+            }
+            else if (userMsg === 'ปลดล็อคขา' || userMsg === 'unlock' || userMsg === 'ปิดล็อคขา') {
+                if (!isAdmin) {
+                    replyMessageObject = { type: 'text', text: "❌ คุณไม่ใช่แอดมิน!" };
+                } else {
+                    isAutoLockLeg = false;
+                    replyMessageObject = { 
+                        type: 'text', 
+                        text: `👑 [แอดมิน - สลับโหมด]\n🔓 **ยกเลิกระบบล็อคขาเรียบร้อย!**\n\n📌 *เปิดรอบถัดไป ผู้เล่นทุกคนจะต้องพิมพ์แย่งลงขาใหม่ตามปกติครับ*` 
+                    };
                 }
             }
             // ⚙️ [คำสั่งแอดมิน] ตั้งค่าขาและราคา
@@ -114,14 +138,14 @@ app.post('/callback', async (req, res) => {
 
                         replyMessageObject = { 
                             type: 'text', 
-                            text: `⚙️ [แอดมิน - ตั้งค่าระบบสำเร็จ]\n------------------------\n🎲 ขาทั้งหมด: **${defaultMaxLegs} ขา**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 ค้ำประกันต่อขา: **${requiredHolding} บาท**\n\n📌 *บันทึกค่าแล้ว! สามารถใช้คำสั่ง 'o' เปิดรอบได้ตลอดเลยครับ*` 
+                            text: `⚙️ [แอดมิน - ตั้งค่าระบบสำเร็จ]\n------------------------\n🎲 ขาทั้งหมด: **${defaultMaxLegs} ขา**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 ค้ำประกันต่อขา: **${requiredHolding} บาท**\n🔒 โหมดปัจจุบัน: **${isAutoLockLeg ? 'ล็อคขาประจำ' : 'แย่งลงขา'}**` 
                         };
                     } else {
-                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ รูปแบบไม่ถูกต้อง ตัวอย่าง: **ตั้งค่า 8 10** หรือ **เพิ่ม 8 ราคา 10**` };
+                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ รูปแบบไม่ถูกต้อง ตัวอย่าง: **ตั้งค่า 8 10**` };
                     }
                 }
             }
-            // ระบบสมาชิก + คำสั่งอื่นๆ
+            // ระบบสมาชิก + คำสั่งทั่วไป
             else {
                 if (!usersWallets[userId]) {
                     usersWallets[userId] = { 
@@ -144,7 +168,9 @@ app.post('/callback', async (req, res) => {
                 // ==========================================
                 if (userMsg === 'c' || userMsg.startsWith('c/') || userMsg.startsWith('c ')) {
                     if (userMsg === 'c') {
-                        let nameInfo = user.nickname ? `👤 ชื่อแสดงผล: **${displayName}**` : `👤 ชื่อแสดงผล: **${displayName}**\n📌 *(พิมพ์ c/ชื่อเล่น เพื่อระบุชื่อเล่นเพิ่มเติมได้)*`;
+                        let nameInfo = `👤 ชื่อแสดงผล: **${displayName}**`;
+                        if (!user.nickname) nameInfo += `\n📌 *(พิมพ์ c/ชื่อเล่น เพื่อระบุชื่อเล่นเพิ่มเติมได้)*`;
+                        
                         replyMessageObject = { 
                             type: 'text', 
                             text: `💳 **ข้อมูลกระเป๋าเงิน**\n------------------------\n${nameInfo}\n🆔 ลำดับสมาชิก: **ลำดับที่ ${user.memberNumber}**\n💰 ยอดเงินคงเหลือ: **${user.balance.toFixed(1)}** บาท` 
@@ -159,12 +185,12 @@ app.post('/callback', async (req, res) => {
                                 text: `✅ บันทึกชื่อเล่นเรียบร้อย!\n👤 ชื่อแสดงผลในระบบ: **[${updatedName}]**\n💰 ยอดเงินคงเหลือ: **${user.balance.toFixed(1)}** บาท` 
                             };
                         } else {
-                            replyMessageObject = { type: 'text', text: `❌ พิมพ์ชื่อเล่นไม่ถูกต้อง ตัวอย่าง: **c/ต้น** หรือ **c/บอย**` };
+                            replyMessageObject = { type: 'text', text: `❌ พิมพ์ชื่อเล่นไม่ถูกต้อง ตัวอย่าง: **c/ต้น**` };
                         }
                     }
                 }
                 // ==========================================
-                // PART 2: ระบบเติมเงิน / ถอนเงิน (ค้นหาได้ทั้ง เลขลำดับ และ ชื่อเล่น)
+                // PART 2: ระบบเติมเงิน / ถอนเงิน
                 // ==========================================
                 else if (originalMsg.startsWith('เติม')) {
                     if (!isAdmin) {
@@ -185,7 +211,6 @@ app.post('/callback', async (req, res) => {
                             for (let uid in usersWallets) {
                                 let u = usersWallets[uid];
                                 let nicknameClean = (u.nickname || "").toLowerCase().replace(/\s+/g, '');
-                                // ค้นหาจาก เลขลำดับสมาชิก หรือ ชื่อเล่น
                                 if (u.memberNumber.toString() === searchKeyword || nicknameClean === searchKeyword) {
                                     targetUserId = uid;
                                     break;
@@ -194,7 +219,7 @@ app.post('/callback', async (req, res) => {
                         }
 
                         if (!targetUserId || isNaN(amount) || amount <= 0) {
-                            replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ เติมเงินไม่สำเร็จ\n📌 ตัวอย่างใช้เลขลำดับ: **เติม 1 500**\n📌 ตัวอย่างใช้ชื่อเล่น: **เติม ต้น 500**` };
+                            replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ เติมเงินไม่สำเร็จ\n📌 รูปแบบ: **เติม [ลำดับ/ชื่อเล่น] [จำนวนเงิน]**` };
                         } else {
                             usersWallets[targetUserId].balance += amount;
                             let tUser = usersWallets[targetUserId];
@@ -271,11 +296,50 @@ app.post('/callback', async (req, res) => {
                         roundBets = {}; 
                         pendingResults = null;
 
-                        let requiredHolding = (defaultMaxLegs - 1) * 2 * defaultBetPrice;
+                        let requiredHoldingPerLeg = (defaultMaxLegs - 1) * 2 * defaultBetPrice;
+                        let autoLockReport = "";
+
+                        // 🔒 หากเปิดโหมดล็อคขา ให้ดึงขาจากรอบที่แล้วมาลงให้อัตโนมัติ
+                        if (isAutoLockLeg && Object.keys(previousOccupiedLegs).length > 0) {
+                            autoLockReport += `\n🔒 **[โหมดล็อคขาทำงาน]**:`;
+                            
+                            // จัดกลุ่มตามผู้เล่น
+                            let playerLegs = {};
+                            for (let leg in previousOccupiedLegs) {
+                                leg = parseInt(leg);
+                                if (leg <= defaultMaxLegs) {
+                                    let uid = previousOccupiedLegs[leg];
+                                    if (!playerLegs[uid]) playerLegs[uid] = [];
+                                    playerLegs[uid].push(leg);
+                                }
+                            }
+
+                            for (let uid in playerLegs) {
+                                let pUser = usersWallets[uid];
+                                if (!pUser || pUser.isLockWithdraw) continue;
+
+                                let legsToTake = playerLegs[uid];
+                                let totalHoldingNeeded = requiredHoldingPerLeg * legsToTake.length;
+
+                                if (pUser.balance >= totalHoldingNeeded) {
+                                    roundBets[uid] = { betPerKha: defaultBetPrice, holding: totalHoldingNeeded, khasDetails: {} };
+                                    legsToTake.forEach(k => {
+                                        occupiedLegs[k] = uid;
+                                        roundBets[uid].khasDetails[k] = true;
+                                    });
+                                    pUser.balance -= totalHoldingNeeded;
+                                    autoLockReport += `\n▪️ [${getUserDisplayName(pUser)}]: ขา [${legsToTake.join(', ')}]`;
+                                } else {
+                                    autoLockReport += `\n⚠️ [${getUserDisplayName(pUser)}]: เงินค้ำประกันไม่พอ (${pUser.balance.toFixed(1)}/${totalHoldingNeeded} บ.)`;
+                                }
+                            }
+                        }
+
+                        let modeStatus = isAutoLockLeg ? "🔒 โหมดล็อคขาประจำ" : "⚡ โหมดแย่งลงขา";
 
                         replyMessageObject = { 
                             type: 'text', 
-                            text: `🟢 [เปิดรับเดิมพันรอบใหม่]\n------------------------\n🎲 ขาทั้งหมด: **1 ถึง ${defaultMaxLegs}**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 ค้ำประกันต่อขา: **${requiredHolding} บาท**\n\n📌 *พิมพ์เลือกขาที่ต้องการได้เลย เช่น: 1, 2, 5 (ใครไวกว่าได้ก่อน!)*` 
+                            text: `🟢 [เปิดรับเดิมพันรอบใหม่] (${modeStatus})\n------------------------\n🎲 ขาทั้งหมด: **1 ถึง ${defaultMaxLegs}**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 ค้ำประกันต่อขา: **${requiredHoldingPerLeg} บาท**\n${autoLockReport}\n\n📌 *${isAutoLockLeg ? 'ระบบดึงขาประจำให้แล้ว (หากจะลงเพิ่มพิมพ์เลขขาได้เลย)' : 'พิมพ์เลือกขาที่ต้องการได้เลย เช่น: 1, 2, 5'}*` 
                         };
                     }
                 }
@@ -302,7 +366,7 @@ app.post('/callback', async (req, res) => {
                             }
                             
                             if (!hasData) summary += "❌ ไม่มีใครลงเดิมพันในรอบนี้\n";
-                            replyMessageObject = { type: 'text', text: summary + `\n⏳ รอผล` };
+                            replyMessageObject = { type: 'text', text: summary + `\n⏳ รอแอดมินใส่ผลคะแนนด้วยสัญลักษณ์ > เช่น:\n>7.5\n4/\n9/\n6` };
                         }
                     }
                 }
@@ -420,6 +484,10 @@ app.post('/callback', async (req, res) => {
 
                         replyMessageObject = { type: 'text', text: summaryText + `✨ เคลียร์ยอดเรียบร้อย! พิมพ์ o เพื่อเปิดรอบถัดไป` };
                         
+                        // 💾 บันทึกกระดานรอบนี้ไว้เป็นขาประจำสำหรับรอบถัดไป
+                        previousOccupiedLegs = { ...occupiedLegs };
+
+                        // 🔄 เคลียร์ข้อมูลรอบปัจจุบัน
                         isRoundOpen = false;
                         occupiedLegs = {};
                         roundBets = {}; 
