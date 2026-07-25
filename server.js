@@ -7,8 +7,8 @@ app.use(express.urlencoded({ extended: true }));
 // ==========================================
 // 📌 1. ตั้งค่าตัวแปรระบบและ Global Variables
 // ==========================================
-const ADMIN_LIST = ['U1234567890abcdef1234567890abcdef']; // 👈 ใส่ LINE User ID ของแอดมิน
-const COMMISSION_RATE = 0.05; // ค่าน้ำ 5%
+const ADMIN_LIST = ['U4a0d60e9af37aa9fe66cf3e97d01cddb']; // 👈 ใส่ LINE User ID ของแอดมิน
+const COMMISSION_RATE = 0.00; // ค่าน้ำ 5%
 
 let usersWallets = {};
 let nextMemberId = 1;
