@@ -366,7 +366,7 @@ app.post('/callback', async (req, res) => {
                             }
                             
                             if (!hasData) summary += "❌ ไม่มีใครลงเดิมพันในรอบนี้\n";
-                            replyMessageObject = { type: 'text', text: summary + `\n⏳ รอแอดมินใส่ผลคะแนนด้วยสัญลักษณ์ > เช่น:\n>7.5\n4/\n9/\n6` };
+                            replyMessageObject = { type: 'text', text: summary + `\n⏳ รอผล` };
                         }
                     }
                 }
