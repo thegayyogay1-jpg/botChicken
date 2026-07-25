@@ -48,17 +48,12 @@ app.post('/callback', async (req, res) => {
 
     for (let event of events) {
         if (event.type === 'message' && event.message.type === 'text') {
-            const replyToken = event.replyToken;
-            const userId = event.source.userId;
-            const originalMsg = event.message.text.trim();
-            const userMsg = originalMsg.toLowerCase().replace(/\s+/g, '');
-            // ดึงข้อมูลประเภท ID ต่างๆ จาก Event Source
-const source = event.source;
+           const source = event.source;
 const userId = source.userId;
 const groupId = source.groupId; // มีค่าเมื่อบอทอยู่ในกลุ่ม
 const roomId = source.roomId;   // มีค่าเมื่อบอทอยู่ในห้องแชทหลายคน
 
-            // 🆔 [คำสั่งเช็ก ID] พิมพ์คำว่า "id" หรือ "myid" 
+// 🆔 [คำสั่งเช็ก ID] พิมพ์คำว่า "id" หรือ "myid" 
 if (userMsg === 'id' || userMsg === 'myid') {
     let idInfoText = `🆔 **ข้อมูล LINE ID**\n------------------------\n`;
     
@@ -84,10 +79,6 @@ if (userMsg === 'id' || userMsg === 'myid') {
         text: idInfoText
     };
 }
-
-            
-            let replyMessageObject = null; 
-            const isAdmin = ADMIN_LIST.includes(userId);
 
             // 🧽 [คำสั่งแอดมิน] ล้างระบบ
             if (userMsg === 'ล้างระบบ') {
