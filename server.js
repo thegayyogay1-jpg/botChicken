@@ -1,85 +1,85 @@
 const express = require('express');
 const app = express();
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// ฐานข้อมูลจำลอง (จำในแรม)
-let usersWallets = {}; 
-let nextMemberId = 1;  
+// ==========================================
+// 📌 1. ตั้งค่าตัวแปรระบบและ Global Variables
+// ==========================================
+const ADMIN_LIST = ['U1234567890abcdef1234567890abcdef']; // 👈 ใส่ LINE User ID ของแอดมินตรงนี้
+const COMMISSION_RATE = 0.05; // ค่าน้ำ 5% (ถ้าไม่ต้องการให้ใส่ 0)
+
+let usersWallets = {};
+let nextMemberId = 1;
 let isRoundOpen = false;
-let roundBets = {}; 
+let roundBets = {};
+let pendingResults = null;
 
-// ตัวแปรพักข้อมูลผลไพ่
-let pendingResults = null; 
-
-// 👑 [ตั้งค่าแอดมิน] ใส่ LINE USER ID ของแอดมิน
-const ADMIN_LIST = [
-    "U0d1e353091d90af57b37ff38d36e29bc"
-]; 
-
-// ค่าน้ำ / ค่าต๋ง สำหรับระบบตีไก่ (เช่น 0.05 = หัก 5% จากยอดกำไร)
-const COMMISSION_RATE = 0.05;
-
-// ฟังก์ชั่นคำนวณแต้มและเด้ง
+// ==========================================
+// 📌 2. ฟังก์ชันคำนวณไพ่ป๊อกเด้ง (parseCard)
+// ==========================================
 function parseCard(cardStr) {
     if (!cardStr) return { score: 0, deng: 1 };
     let str = cardStr.trim().toLowerCase();
-    let isDeng = false;
+    
+    let deng = 1;
     if (str.startsWith('d')) {
-        isDeng = true;
+        deng = 2;
+        str = str.substring(1);
+    } else if (str.startsWith('k')) {
+        deng = 3;
         str = str.substring(1);
     }
-    const specialChars = ['t', 'j', 'q', 'k'];
-    
-    // ไพ่คู่ตัวอักษรพิเศษ (เช่น TJ, QK) ให้เป็น 7.5 แต้ม
-    if (str.length === 2 && specialChars.includes(str[0]) && specialChars.includes(str[1])) {
-        return { score: 7.5, deng: isDeng ? 2 : 1 };
-    }
-    const getVal = (c) => specialChars.includes(c) ? 0 : parseInt(c);
+
+    let score = 0;
     if (str.length === 2) {
-        let score = (getVal(str[0]) + getVal(str[1])) % 10;
-        return { score: score, deng: isDeng ? 2 : 1 };
+        let c1 = str[0];
+        let c2 = str[1];
+        let val1 = isNaN(c1) ? 0 : parseInt(c1);
+        let val2 = isNaN(c2) ? 0 : parseInt(c2);
+        score = (val1 + val2) % 10;
+    } else if (str.length === 1) {
+        score = isNaN(str) ? 0 : parseInt(str);
     }
-    return { score: 0, deng: 1 };
+
+    return { score, deng };
 }
 
+// Route สำหรับ Health Check ของ Render
+app.get('/', (req, res) => {
+    res.send('LINE Bot Server is running!');
+});
+
+// ==========================================
+// 📌 3. LINE Webhook Handler
+// ==========================================
 app.post('/callback', async (req, res) => {
     const events = req.body.events;
     if (!events) return res.sendStatus(200);
 
     for (let event of events) {
         if (event.type === 'message' && event.message.type === 'text') {
-            const replyToken = event.replyToken; // 🟢 เพิ่มการดึง replyToken
+            const replyToken = event.replyToken;
             const source = event.source;
             const userId = source.userId;
             const groupId = source.groupId;
             const roomId = source.roomId;
 
-            // 🟢 ประกาศตัวแปรข้อความและสิทธิ์แอดมิน
             const originalMsg = event.message.text.trim();
             const userMsg = originalMsg.toLowerCase();
             const isAdmin = ADMIN_LIST.includes(userId);
             let replyMessageObject = null;
 
-            // 🆔 [คำสั่งเช็ก ID] พิมพ์คำว่า "id" หรือ "myid" 
+            // 🆔 [คำสั่งเช็ก ID]
             if (userMsg === 'id' || userMsg === 'myid') {
                 let idInfoText = `🆔 **ข้อมูล LINE ID**\n------------------------\n`;
-                
-                if (userId) {
-                    idInfoText += `👤 **User ID ของคุณ:**\n${userId}\n\n`;
-                }
-                if (groupId) {
-                    idInfoText += `👥 **Group ID กลุ่มนี้:**\n${groupId}\n\n`;
-                }
-                if (roomId) {
-                    idInfoText += `🏠 **Room ID ห้องนี้:**\n${roomId}\n\n`;
-                }
+                if (userId) idInfoText += `👤 **User ID:**\n${userId}\n\n`;
+                if (groupId) idInfoText += `👥 **Group ID:**\n${groupId}\n\n`;
+                if (roomId) idInfoText += `🏠 **Room ID:**\n${roomId}\n\n`;
+                idInfoText += `📌 *วาง User ID ในตัวแปร ADMIN_LIST ได้เลยครับ*`;
 
-                idInfoText += `📌 *ก๊อปปี้ User ID ด้านบนไปวางใส่ตัวแปร ADMIN_LIST ในโค้ดได้เลยครับ!*`;
-
-                replyMessageObject = {
-                    type: 'text',
-                    text: idInfoText
-                };
+                replyMessageObject = { type: 'text', text: idInfoText };
             }
             // 🧽 [คำสั่งแอดมิน] ล้างระบบ
             else if (userMsg === 'ล้างระบบ') {
@@ -90,7 +90,7 @@ app.post('/callback', async (req, res) => {
                     replyMessageObject = { type: 'text', text: "👑 [แอดมิน] ♻️ ล้างระบบสมาชิกเริ่มต้นใหม่เรียบร้อยแล้วครับ!" };
                 }
             }
-            // ลงทะเบียนสมาชิกใหม่อัตโนมัติ + คำสั่งอื่นๆ
+            // ระบบสมาชิก + คำสั่งอื่นๆ
             else {
                 if (!usersWallets[userId]) {
                     usersWallets[userId] = { 
@@ -117,9 +117,7 @@ app.post('/callback', async (req, res) => {
                     }
                 }
 
-                // ==========================================
-                // PART 1: ระบบเติมเงิน / ถอนเงิน / เช็กยอด
-                // ==========================================
+                // --- เติม / ถอน / เช็กยอด ---
                 if (originalMsg.startsWith('เติม')) {
                     if (!isAdmin) {
                         replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
@@ -211,9 +209,7 @@ app.post('/callback', async (req, res) => {
                     replyMessageObject = { type: 'text', text: `👤 ${user.memberTitle}\n💰 ยอดเงินคงเหลือ: ${user.balance} บาท` };
                 }
 
-                // ==========================================
-                // PART 2: เปิด/ปิด/คืน โพยระบบตีไก่
-                // ==========================================
+                // --- เปิด / ปิด / คืน โพย ---
                 else if (userMsg === 'o') {
                     if (!isAdmin) {
                         replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
@@ -256,9 +252,7 @@ app.post('/callback', async (req, res) => {
                     }
                 }
 
-                // ==========================================
-                // PART 3: รับโพยระบบตีไก่
-                // ==========================================
+                // --- ตรวจผลไพ่ / คิดเงิน ---
                 else if (originalMsg.startsWith('ผล:') || originalMsg.startsWith('ผล ')) {
                     if (!isAdmin) {
                         replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
@@ -285,7 +279,6 @@ app.post('/callback', async (req, res) => {
                         replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ⚠️ ไม่มีผลไพ่ค้างในระบบ` };
                     } else {
                         let { results } = pendingResults;
-                        
                         let parsedCards = {};
                         for (let i = 0; i < results.length; i++) {
                             parsedCards[i + 1] = parseCard(results[i]);
@@ -348,6 +341,7 @@ app.post('/callback', async (req, res) => {
                     }
                 }
                 else {
+                    // รับโพย
                     const lines = originalMsg.split('\n');
                     let isBetMessage = false;
                     
@@ -407,14 +401,14 @@ app.post('/callback', async (req, res) => {
                                     };
                                 }
                             } else {
-                                replyMessageObject = { type: 'text', text: `${mentionText} ❌ รูปแบบโพยไม่ถูกต้อง! พิมพ์เช่น: 123-100 (แทงขา 1,2,3 ขาละ 100 บาท)` };
+                                replyMessageObject = { type: 'text', text: `${mentionText} ❌ รูปแบบโพยไม่ถูกต้อง!` };
                             }
                         }
                     }
                 }
             }
 
-            // ส่งข้อความกลับ LINE
+            // ส่งข้อความตอบกลับไปยัง LINE
             if (replyMessageObject) {
                 try {
                     await fetch('https://api.line.me/v2/bot/message/reply', {
@@ -429,10 +423,18 @@ app.post('/callback', async (req, res) => {
                         })
                     });
                 } catch (err) {
-                    console.error('Error:', err);
+                    console.error('Error sending message:', err);
                 }
             }
         }
     }
     res.sendStatus(200);
+});
+
+// ==========================================
+// 📌 4. กำหนด Port สำหรับ Render
+// ==========================================
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
