@@ -327,6 +327,35 @@ app.post('/callback', async (req, res) => {
                         replyMessageObject = { type: 'text', text: previewText + `\n📢 หากถูกต้องพิมพ์ **OK** เพื่อคิดเงินชนไพ่ทุกคู่` };
                     }
                 }
+                     // ==================== [ 🛠️ คำสั่งพิเศษสำหรับขอ ID กลุ่ม และ UID ] ====================
+        if (userMsg === "ขอไอดี") {
+            let replyText = "";
+            
+            // 1. เช็กว่าพิมพ์ในกลุ่มไหม ถ้าพิมพ์ในกลุ่มให้ดึง Group ID ออกมา
+            if (event.source.type === 'group') {
+                replyText += `👥 ไอดีกลุ่มนี้คือ:\n👉 ${event.source.groupId}\n\n`;
+            } else {
+                replyText += `👤 อันนี้พิมพ์ในแชทส่วนตัว ไม่ใช่กลุ่มจ้า\n\n`;
+            }
+            
+            // 2. แถม UID ส่วนตัวของน้าไปให้ด้วยเลย
+            replyText += `👤 ไอดีของคุณ (UID):\n👉 ${userId}`;
+
+            // 3. สั่งให้บอทยิงตอบกลับ
+            try {
+                await axios.post('https://api.line.me/v2/bot/message/reply', {
+                    replyToken: replyToken,
+                    messages: [{ "type": "text", "text": replyText }]
+                }, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${TOKEN}`
+                    }
+                });
+            } catch (e) { console.error("❌ ส่งข้อความคำสั่งขอไอดีล้มเหลว:", e.message); }
+            continue; // ทำงานจบแล้วข้ามไปอีเวนต์ถัดไป
+        }
+
 
                 // ==========================================
                 // PART 5: คำนวณเงินระบบตีไก่ (Round-Robin ทุกขาชนกันเอง)
