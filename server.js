@@ -186,34 +186,6 @@ app.post('/callback', async (req, res) => {
                 else if (userMsg === 'c') {
                     replyMessageObject = { type: 'text', text: `👤 ${user.memberTitle}\n💰 ยอดเงินคงเหลือ: ${user.balance} บาท` };
                 }
-                    // ==================== [ 🛠️ คำสั่งพิเศษสำหรับขอ ID กลุ่ม และ UID ] ====================
-        if (userMsg === "ขอไอดี") {
-            let replyText = "";
-            
-            // 1. เช็กว่าพิมพ์ในกลุ่มไหม ถ้าพิมพ์ในกลุ่มให้ดึง Group ID ออกมา
-            if (event.source.type === 'group') {
-                replyText += `👥 ไอดีกลุ่มนี้คือ:\n👉 ${event.source.groupId}\n\n`;
-            } else {
-                replyText += `👤 อันนี้พิมพ์ในแชทส่วนตัว ไม่ใช่กลุ่มจ้า\n\n`;
-            }
-            
-            // 2. แถม UID ส่วนตัวของน้าไปให้ด้วยเลย
-            replyText += `👤 ไอดีของคุณ (UID):\n👉 ${userId}`;
-
-            // 3. สั่งให้บอทยิงตอบกลับ
-            try {
-                await axios.post('https://api.line.me/v2/bot/message/reply', {
-                    replyToken: replyToken,
-                    messages: [{ "type": "text", "text": replyText }]
-                }, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${TOKEN}`
-                    }
-                });
-            } catch (e) { console.error("❌ ส่งข้อความคำสั่งขอไอดีล้มเหลว:", e.message); }
-            continue; // ทำงานจบแล้วข้ามไปอีเวนต์ถัดไป
-        }
 
                 // ==========================================
                 // PART 2: เปิด/ปิด/คืน โพยระบบตีไก่
@@ -436,6 +408,34 @@ app.post('/callback', async (req, res) => {
                     }
                 }
             }
+             // ==================== [ 🛠️ คำสั่งพิเศษสำหรับขอ ID กลุ่ม และ UID ] ====================
+        if (userMsg === "ขอไอดี") {
+            let replyText = "";
+            
+            // 1. เช็กว่าพิมพ์ในกลุ่มไหม ถ้าพิมพ์ในกลุ่มให้ดึง Group ID ออกมา
+            if (event.source.type === 'group') {
+                replyText += `👥 ไอดีกลุ่มนี้คือ:\n👉 ${event.source.groupId}\n\n`;
+            } else {
+                replyText += `👤 อันนี้พิมพ์ในแชทส่วนตัว ไม่ใช่กลุ่มจ้า\n\n`;
+            }
+            
+            // 2. แถม UID ส่วนตัวของน้าไปให้ด้วยเลย
+            replyText += `👤 ไอดีของคุณ (UID):\n👉 ${userId}`;
+
+            // 3. สั่งให้บอทยิงตอบกลับ
+            try {
+                await axios.post('https://api.line.me/v2/bot/message/reply', {
+                    replyToken: replyToken,
+                    messages: [{ "type": "text", "text": replyText }]
+                }, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${TOKEN}`
+                    }
+                });
+            } catch (e) { console.error("❌ ส่งข้อความคำสั่งขอไอดีล้มเหลว:", e.message); }
+            continue; // ทำงานจบแล้วข้ามไปอีเวนต์ถัดไป
+        }
 
             // ส่งข้อความกลับ LINE
             if (replyMessageObject) {
