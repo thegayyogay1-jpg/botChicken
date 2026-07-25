@@ -58,7 +58,7 @@ const userId = source.userId;
 const groupId = source.groupId; // มีค่าเมื่อบอทอยู่ในกลุ่ม
 const roomId = source.roomId;   // มีค่าเมื่อบอทอยู่ในห้องแชทหลายคน
 
-// 🆔 [คำสั่งเช็ก ID] พิมพ์คำว่า "id" หรือ "myid" 
+            // 🆔 [คำสั่งเช็ก ID] พิมพ์คำว่า "id" หรือ "myid" 
 if (userMsg === 'id' || userMsg === 'myid') {
     let idInfoText = `🆔 **ข้อมูล LINE ID**\n------------------------\n`;
     
@@ -84,6 +84,7 @@ if (userMsg === 'id' || userMsg === 'myid') {
         text: idInfoText
     };
 }
+
             
             let replyMessageObject = null; 
             const isAdmin = ADMIN_LIST.includes(userId);
