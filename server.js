@@ -39,7 +39,6 @@ app.post('/callback', async (req, res) => {
                     }
                 });
             } catch (e) { console.error("❌ ส่งข้อความคำสั่งขอไอดีล้มเหลว:", e.message); }
-            continue; // ทำงานจบแล้วข้ามไปอีเวนต์ถัดไป
         }
     return res.sendStatus(200);
 });
