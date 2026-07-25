@@ -48,40 +48,41 @@ app.post('/callback', async (req, res) => {
 
     for (let event of events) {
         if (event.type === 'message' && event.message.type === 'text') {
-           const source = event.source;
-const userId = source.userId;
-const groupId = source.groupId; // มีค่าเมื่อบอทอยู่ในกลุ่ม
-const roomId = source.roomId;   // มีค่าเมื่อบอทอยู่ในห้องแชทหลายคน
+            const replyToken = event.replyToken; // 🟢 เพิ่มการดึง replyToken
+            const source = event.source;
+            const userId = source.userId;
+            const groupId = source.groupId;
+            const roomId = source.roomId;
 
-// 🆔 [คำสั่งเช็ก ID] พิมพ์คำว่า "id" หรือ "myid" 
-if (userMsg === 'id' || userMsg === 'myid') {
-    let idInfoText = `🆔 **ข้อมูล LINE ID**\n------------------------\n`;
-    
-    // แสดง User ID ของคนที่พิมพ์
-    if (userId) {
-        idInfoText += `👤 **User ID ของคุณ:**\n\`${userId}\`\n\n`;
-    }
-    
-    // ถ้าพิมพ์ในกลุ่ม จะแสดง Group ID ด้วย
-    if (groupId) {
-        idInfoText += `👥 **Group ID กลุ่มนี้:**\n\`${groupId}\`\n\n`;
-    }
-    
-    // ถ้าพิมพ์ใน Room แชท
-    if (roomId) {
-        idInfoText += `🏠 **Room ID ห้องนี้:**\n\`${roomId}\`\n\n`;
-    }
+            // 🟢 ประกาศตัวแปรข้อความและสิทธิ์แอดมิน
+            const originalMsg = event.message.text.trim();
+            const userMsg = originalMsg.toLowerCase();
+            const isAdmin = ADMIN_LIST.includes(userId);
+            let replyMessageObject = null;
 
-    idInfoText += `📌 *ก๊อปปี้ User ID ด้านบนไปวางใส่ตัวแปร ADMIN_LIST ในโค้ดได้เลยครับ!*`;
+            // 🆔 [คำสั่งเช็ก ID] พิมพ์คำว่า "id" หรือ "myid" 
+            if (userMsg === 'id' || userMsg === 'myid') {
+                let idInfoText = `🆔 **ข้อมูล LINE ID**\n------------------------\n`;
+                
+                if (userId) {
+                    idInfoText += `👤 **User ID ของคุณ:**\n${userId}\n\n`;
+                }
+                if (groupId) {
+                    idInfoText += `👥 **Group ID กลุ่มนี้:**\n${groupId}\n\n`;
+                }
+                if (roomId) {
+                    idInfoText += `🏠 **Room ID ห้องนี้:**\n${roomId}\n\n`;
+                }
 
-    replyMessageObject = {
-        type: 'text',
-        text: idInfoText
-    };
-}
+                idInfoText += `📌 *ก๊อปปี้ User ID ด้านบนไปวางใส่ตัวแปร ADMIN_LIST ในโค้ดได้เลยครับ!*`;
 
+                replyMessageObject = {
+                    type: 'text',
+                    text: idInfoText
+                };
+            }
             // 🧽 [คำสั่งแอดมิน] ล้างระบบ
-            if (userMsg === 'ล้างระบบ') {
+            else if (userMsg === 'ล้างระบบ') {
                 if (!isAdmin) {
                     replyMessageObject = { type: 'text', text: "❌ คุณไม่ใช่แอดมิน ไม่มีสิทธิ์ใช้คำสั่งนี้ครับ" };
                 } else {
@@ -89,8 +90,7 @@ if (userMsg === 'id' || userMsg === 'myid') {
                     replyMessageObject = { type: 'text', text: "👑 [แอดมิน] ♻️ ล้างระบบสมาชิกเริ่มต้นใหม่เรียบร้อยแล้วครับ!" };
                 }
             }
-
-            // ลงทะเบียนสมาชิกใหม่อัตโนมัติ
+            // ลงทะเบียนสมาชิกใหม่อัตโนมัติ + คำสั่งอื่นๆ
             else {
                 if (!usersWallets[userId]) {
                     usersWallets[userId] = { 
@@ -257,8 +257,96 @@ if (userMsg === 'id' || userMsg === 'myid') {
                 }
 
                 // ==========================================
-                // PART 3: รับโพยระบบตีไก่ (รูปแบบ: ขา-จำนวนเงิน เช่น 123-100 หรือ 1-100)
+                // PART 3: รับโพยระบบตีไก่
                 // ==========================================
+                else if (originalMsg.startsWith('ผล:') || originalMsg.startsWith('ผล ')) {
+                    if (!isAdmin) {
+                        replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
+                    } else {
+                        const resultStr = originalMsg.replace(/^ผล:\s*|^ผล\s+/i, '');
+                        const results = resultStr.split(','); 
+
+                        pendingResults = { results };
+                        let previewText = `🐓 [ตรวจผลไพ่ระบบตีไก่]\n------------------------\n`;
+                        
+                        for (let i = 0; i < results.length; i++) {
+                            let legNum = i + 1;
+                            let cardRes = parseCard(results[i]);
+                            previewText += `🔹 ขา ${legNum}: ${cardRes.score} แต้ม (${cardRes.deng} เด้ง)\n`;
+                        }
+
+                        replyMessageObject = { type: 'text', text: previewText + `\n📢 หากถูกต้องพิมพ์ **OK** เพื่อคิดเงินชนไพ่ทุกคู่` };
+                    }
+                }
+                else if (userMsg === 'ok') {
+                    if (!isAdmin) {
+                        replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
+                    } else if (!pendingResults) {
+                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ⚠️ ไม่มีผลไพ่ค้างในระบบ` };
+                    } else {
+                        let { results } = pendingResults;
+                        
+                        let parsedCards = {};
+                        for (let i = 0; i < results.length; i++) {
+                            parsedCards[i + 1] = parseCard(results[i]);
+                        }
+
+                        let summaryText = `📊 [สรุปผลคิดเงินป๊อกเด้งตีไก่ - ทุกขาชนกัน]\n------------------------\n`;
+
+                        for (let uid in roundBets) {
+                            let savedBet = roundBets[uid];
+                            let pUser = usersWallets[uid];
+                            let totalNetWinLoss = 0;
+                            let legReportText = "";
+
+                            let myLegs = Object.keys(savedBet.khasDetails).map(Number);
+
+                            for (let myLeg of myLegs) {
+                                let myCard = parsedCards[myLeg];
+                                if (!myCard) continue;
+
+                                let legWinLoss = 0;
+
+                                for (let oppLeg in parsedCards) {
+                                    oppLeg = parseInt(oppLeg);
+                                    if (myLeg === oppLeg) continue;
+
+                                    let oppCard = parsedCards[oppLeg];
+                                    let bet = savedBet.betPerKha;
+
+                                    if (myCard.score > oppCard.score) {
+                                        let winAmt = bet * myCard.deng;
+                                        let profit = winAmt * (1 - COMMISSION_RATE);
+                                        legWinLoss += profit;
+                                    } else if (myCard.score < oppCard.score) {
+                                        let loseAmt = bet * oppCard.deng;
+                                        legWinLoss -= loseAmt;
+                                    }
+                                }
+
+                                totalNetWinLoss += legWinLoss;
+                                let sign = legWinLoss >= 0 ? `+${legWinLoss.toFixed(0)}` : `${legWinLoss.toFixed(0)}`;
+                                legReportText += `    ▪️ ขา ${myLeg} (${myCard.score} แต้ม): ${sign} บ.\n`;
+                            }
+
+                            let finalReturn = savedBet.holding + totalNetWinLoss;
+                            pUser.balance += finalReturn;
+
+                            let overallSign = totalNetWinLoss >= 0 ? `+${totalNetWinLoss.toFixed(0)}` : `${totalNetWinLoss.toFixed(0)}`;
+                            summaryText += `👤 ${pUser.memberTitle}:\n${legReportText}    🏆 ผลรวมรอบนี้: **${overallSign} บาท**\n    💳 ยอดเงินคงเหลือล่าสุด: ${pUser.balance} บาท\n------------------------\n`;
+                        }
+
+                        replyMessageObject = { type: 'text', text: summaryText + `✨ เคลียร์ยอดตีไก่เรียบร้อย! พิมพ์ O เพื่อเริ่มรอบใหม่` };
+                        roundBets = {}; 
+                        pendingResults = null; 
+                    }
+                }
+                else if (userMsg === 'no') {
+                    if (isAdmin) {
+                        pendingResults = null; 
+                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] 🛑 ยกเลิกผลไพ่แล้ว สามารถส่งผลไพ่ใหม่ได้เลย` };
+                    }
+                }
                 else {
                     const lines = originalMsg.split('\n');
                     let isBetMessage = false;
@@ -277,8 +365,6 @@ if (userMsg === 'id' || userMsg === 'myid') {
                         } else if (!isRoundOpen) {
                             replyMessageObject = { type: 'text', text: `${mentionText} ❌ ยังไม่เปิดรอบ!` };
                         } else {
-                            // ในระบบตีไก่ ให้ผู้เล่นเลือกจอง "ขา"
-                            // รูปแบบ: 1-100 (แทงขา 1 ยอด 100) หรือ 123-100 (แทงขา 1,2,3 ขาละ 100)
                             let newKhasList = [];
                             let betPerKha = 0;
 
@@ -288,7 +374,7 @@ if (userMsg === 'id' || userMsg === 'myid') {
                                     let parts = cleanLine.split('-');
                                     if (parts.length === 2 && !isNaN(parts[1])) {
                                         let rawKhas = parts[0].split('').map(Number);
-                                        let invalidCheck = rawKhas.some(k => k < 1 || k > 10 || isNaN(k)); // รองรับได้สูงสุด 10 ขา
+                                        let invalidCheck = rawKhas.some(k => k < 1 || k > 10 || isNaN(k));
                                         if (!invalidCheck) {
                                             newKhasList.push(...rawKhas);
                                             betPerKha = parseInt(parts[1]);
@@ -298,8 +384,6 @@ if (userMsg === 'id' || userMsg === 'myid') {
                             }
 
                             if (newKhasList.length > 0 && betPerKha > 0) {
-                                // ขาตีไก่คิดค้ำประกันเบื้องต้น = ยอดแทง x 2 (เด้ง) x (จำนวนขาที่เปิดได้สูงสุดสมมุติ 5 ขา หรือคิดตามจริง)
-                                // เพื่อความปลอดภัย กำหนดค้ำประกัน = ยอดแทง * 4 Per Leg
                                 let totalLegsCount = newKhasList.length;
                                 let requiredHolding = (betPerKha * totalLegsCount) * 4; 
 
@@ -328,110 +412,6 @@ if (userMsg === 'id' || userMsg === 'myid') {
                         }
                     }
                 }
-
-                // ==========================================
-                // PART 4: ส่งผลไพ่ตีไก่ (พิมพ์ ผล: ไพ่ขา1,ไพ่ขา2,ไพ่ขา3,...)
-                // ==========================================
-                if (originalMsg.startsWith('ผล:') || originalMsg.startsWith('ผล ')) {
-                    if (!isAdmin) {
-                        replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
-                    } else {
-                        const resultStr = originalMsg.replace(/^ผล:\s*|^ผล\s+/i, '');
-                        const results = resultStr.split(','); 
-
-                        pendingResults = { results };
-                        let previewText = `🐓 [ตรวจผลไพ่ระบบตีไก่]\n------------------------\n`;
-                        
-                        for (let i = 0; i < results.length; i++) {
-                            let legNum = i + 1;
-                            let cardRes = parseCard(results[i]);
-                            previewText += `🔹 ขา ${legNum}: ${cardRes.score} แต้ม (${cardRes.deng} เด้ง)\n`;
-                        }
-
-                        replyMessageObject = { type: 'text', text: previewText + `\n📢 หากถูกต้องพิมพ์ **OK** เพื่อคิดเงินชนไพ่ทุกคู่` };
-                    }
-                }
-
-                // ==========================================
-                // PART 5: คำนวณเงินระบบตีไก่ (Round-Robin ทุกขาชนกันเอง)
-                // ==========================================
-                else if (userMsg === 'ok') {
-                    if (!isAdmin) {
-                        replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
-                    } else if (!pendingResults) {
-                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ⚠️ ไม่มีผลไพ่ค้างในระบบ` };
-                    } else {
-                        let { results } = pendingResults;
-                        
-                        // สร้าง Object เก็บไพ่แต่ละขา
-                        let parsedCards = {};
-                        for (let i = 0; i < results.length; i++) {
-                            parsedCards[i + 1] = parseCard(results[i]);
-                        }
-
-                        let summaryText = `📊 [สรุปผลคิดเงินป๊อกเด้งตีไก่ - ทุกขาชนกัน]\n------------------------\n`;
-
-                        // วนลูปคิดเงินผู้เล่นแต่ละคน
-                        for (let uid in roundBets) {
-                            let savedBet = roundBets[uid];
-                            let pUser = usersWallets[uid];
-                            let totalNetWinLoss = 0;
-                            let legReportText = "";
-
-                            // ดึงขาที่ผู้เล่นคนนี้ลงไว้
-                            let myLegs = Object.keys(savedBet.khasDetails).map(Number);
-
-                            for (let myLeg of myLegs) {
-                                let myCard = parsedCards[myLeg];
-                                if (!myCard) continue;
-
-                                let legWinLoss = 0;
-
-                                // ชนกับขาอื่นๆ ทุกขาที่มีผลไพ่เปิดอยู่
-                                for (let oppLeg in parsedCards) {
-                                    oppLeg = parseInt(oppLeg);
-                                    if (myLeg === oppLeg) continue; // ไม่ชนกับตัวเอง
-
-                                    let oppCard = parsedCards[oppLeg];
-                                    let bet = savedBet.betPerKha;
-
-                                    if (myCard.score > oppCard.score) {
-                                        // ชนะ
-                                        let winAmt = bet * myCard.deng;
-                                        let profit = winAmt * (1 - COMMISSION_RATE); // หักค่าน้ำ
-                                        legWinLoss += profit;
-                                    } else if (myCard.score < oppCard.score) {
-                                        // แพ้
-                                        let loseAmt = bet * oppCard.deng;
-                                        legWinLoss -= loseAmt;
-                                    }
-                                    // เสมอ = 0
-                                }
-
-                                totalNetWinLoss += legWinLoss;
-                                let sign = legWinLoss >= 0 ? `+${legWinLoss.toFixed(0)}` : `${legWinLoss.toFixed(0)}`;
-                                legReportText += `   ▪️ ขา ${myLeg} (${myCard.score} แต้ม): ${sign} บ.\n`;
-                            }
-
-                            // คืนเงินค้ำประกัน + ผลบวกลบสุทธิ
-                            let finalReturn = savedBet.holding + totalNetWinLoss;
-                            pUser.balance += finalReturn;
-
-                            let overallSign = totalNetWinLoss >= 0 ? `+${totalNetWinLoss.toFixed(0)}` : `${totalNetWinLoss.toFixed(0)}`;
-                            summaryText += `👤 ${pUser.memberTitle}:\n${legReportText}   🏆 ผลรวมรอบนี้: **${overallSign} บาท**\n   💳 ยอดเงินคงเหลือล่าสุด: ${pUser.balance} บาท\n------------------------\n`;
-                        }
-
-                        replyMessageObject = { type: 'text', text: summaryText + `✨ เคลียร์ยอดตีไก่เรียบร้อย! พิมพ์ O เพื่อเริ่มรอบใหม่` };
-                        roundBets = {}; 
-                        pendingResults = null; 
-                    }
-                }
-                else if (userMsg === 'no') {
-                    if (isAdmin) {
-                        pendingResults = null; 
-                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] 🛑 ยกเลิกผลไพ่แล้ว สามารถส่งผลไพ่ใหม่ได้เลย` };
-                    }
-                }
             }
 
             // ส่งข้อความกลับ LINE
@@ -456,6 +436,3 @@ if (userMsg === 'id' || userMsg === 'myid') {
     }
     res.sendStatus(200);
 });
-
-app.get('/', (req, res) => res.send('Bot Cockfight-Pokdeng is Online!'));
-app.listen(process.env.PORT || 3000);
