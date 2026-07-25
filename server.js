@@ -13,40 +13,39 @@ const COMMISSION_RATE = 0.05; // ค่าน้ำ 5% (ถ้าไม่ต้
 let usersWallets = {};
 let nextMemberId = 1;
 
+// ตัวแปรตั้งค่าระบบแบบตายตัว (บันทึกไว้ตลอด)
+let defaultMaxLegs = 8;     // ค่าเริ่มต้น 8 ขา
+let defaultBetPrice = 10;   // ค่าเริ่มต้น ขาละ 10 บาท
+
 // ตัวแปรควบคุมรอบการเล่น
 let isRoundOpen = false;
-let maxLegsCount = 0;      // จำนวนขาทั้งหมดในรอบนี้
-let currentBetPrice = 0;   // ราคาต่อขาในรอบนี้
 let occupiedLegs = {};     // เก็บสถานะขา { 1: userId, 2: userId, ... }
 let roundBets = {};        // เก็บรายละเอียดการแทงของแต่ละคน
 let pendingResults = null;
 
 // ==========================================
-// 📌 2. ฟังก์ชันคำนวณไพ่ป๊อกเด้ง (parseCard)
+// 📌 2. ฟังก์ชันแปลงผลไพ่รูปแบบใหม่ ( parseNewResult )
 // ==========================================
-function parseCard(cardStr) {
-    if (!cardStr) return { score: 0, deng: 1 };
-    let str = cardStr.trim().toLowerCase();
+// ตัวอย่างอินพุต: "7.5", "4/", "9k", "9/2" -> คืนค่า score (float) และ deng (int)
+function parseCardValue(token) {
+    if (!token) return { score: 0, deng: 1 };
+    let str = token.trim().toLowerCase();
     
     let deng = 1;
-    if (str.startsWith('d')) {
+    // ถ้ามีเครื่องหมาย / หรือ k หรือ d ตัวท้าย
+    if (str.includes('/')) {
         deng = 2;
-        str = str.substring(1);
-    } else if (str.startsWith('k')) {
+        str = str.replace('/', '');
+    } else if (str.endsWith('d')) {
+        deng = 2;
+        str = str.slice(0, -1);
+    } else if (str.endsWith('k')) {
         deng = 3;
-        str = str.substring(1);
+        str = str.slice(0, -1);
     }
 
-    let score = 0;
-    if (str.length === 2) {
-        let c1 = str[0];
-        let c2 = str[1];
-        let val1 = isNaN(c1) ? 0 : parseInt(c1);
-        let val2 = isNaN(c2) ? 0 : parseInt(c2);
-        score = (val1 + val2) % 10;
-    } else if (str.length === 1) {
-        score = isNaN(str) ? 0 : parseInt(str);
-    }
+    let score = parseFloat(str);
+    if (isNaN(score)) score = 0;
 
     return { score, deng };
 }
@@ -91,8 +90,28 @@ app.post('/callback', async (req, res) => {
                     replyMessageObject = { type: 'text', text: "❌ คุณไม่ใช่แอดมิน ไม่มีสิทธิ์ใช้คำสั่งนี้ครับ" };
                 } else {
                     usersWallets = {}; nextMemberId = 1; isRoundOpen = false; 
-                    maxLegsCount = 0; currentBetPrice = 0; occupiedLegs = {}; roundBets = {}; pendingResults = null;
+                    occupiedLegs = {}; roundBets = {}; pendingResults = null;
                     replyMessageObject = { type: 'text', text: "👑 [แอดมิน] ♻️ ล้างระบบสมาชิกและกระดานเรียบร้อยแล้วครับ!" };
+                }
+            }
+            // ⚙️ [คำสั่งแอดมิน] ตั้งค่าขาและราคาแบบตายตัว
+            else if (originalMsg.startsWith('ตั้งค่า') || originalMsg.startsWith('เพิ่ม') || originalMsg.startsWith('เซ็ตค่า')) {
+                if (!isAdmin) {
+                    replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
+                } else {
+                    let matches = originalMsg.match(/\d+/g);
+                    if (matches && matches.length >= 2) {
+                        defaultMaxLegs = parseInt(matches[0]);
+                        defaultBetPrice = parseInt(matches[1]);
+                        let requiredHolding = (defaultMaxLegs - 1) * 2 * defaultBetPrice;
+
+                        replyMessageObject = { 
+                            type: 'text', 
+                            text: `⚙️ [แอดมิน - ตั้งค่าระบบสำเร็จ]\n------------------------\n🎲 ขาทั้งหมด: **${defaultMaxLegs} ขา**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 ค้ำประกันต่อขา: **${requiredHolding} บาท**\n\n📌 *บันทึกค่าแล้ว! สามารถใช้คำสั่ง 'o' เปิดรอบได้ตลอดเลยครับ*` 
+                        };
+                    } else {
+                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ รูปแบบไม่ถูกต้อง ตัวอย่าง: **ตั้งค่า 8 10** หรือ **เพิ่ม 8 ราคา 10**` };
+                    }
                 }
             }
             // ระบบสมาชิก + คำสั่งอื่นๆ
@@ -217,33 +236,22 @@ app.post('/callback', async (req, res) => {
                 }
 
                 // ==========================================
-                // PART 2: แอดมินเปิดรอบ / กำหนดขา และราคา
+                // PART 2: เปิดรอบ (o) / ปิดรอบ (x) / คืนโพย (r)
                 // ==========================================
-                // คำสั่งเช่น: "เปิด 8 10", "เพิ่ม 8 ราคา 10", "o"
-                else if (userMsg.startsWith('เปิด') || userMsg.startsWith('เพิ่ม') || userMsg === 'o') {
+                else if (userMsg === 'o') {
                     if (!isAdmin) {
                         replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
                     } else {
-                        let matches = originalMsg.match(/\d+/g);
-                        if (matches && matches.length >= 2) {
-                            maxLegsCount = parseInt(matches[0]);
-                            currentBetPrice = parseInt(matches[1]);
-                        } else if (maxLegsCount === 0 || currentBetPrice === 0) {
-                            // ค่าเริ่มต้นกรณีพิมพ์แค่ "o" แล้วยังไม่ได้ตั้งค่า
-                            maxLegsCount = 8;
-                            currentBetPrice = 10;
-                        }
-
                         isRoundOpen = true; 
                         occupiedLegs = {}; 
                         roundBets = {}; 
                         pendingResults = null;
 
-                        let requiredHolding = (maxLegsCount - 1) * 2 * currentBetPrice;
+                        let requiredHolding = (defaultMaxLegs - 1) * 2 * defaultBetPrice;
 
                         replyMessageObject = { 
                             type: 'text', 
-                            text: `🟢 [ระบบตีไก่ - เปิดรับเดิมพัน]\n------------------------\n🎲 ขาทั้งหมด: **1 ถึง ${maxLegsCount}**\n💵 ราคาเดิมพัน: **ขาละ ${currentBetPrice} บาท**\n🔒 ต้องมีเงินค้ำประกัน: **${requiredHolding} บาท**\n\n📌 *พิมพ์เลือกขาที่ต้องการได้เลย เช่น: 1, 2, 5 (ใครไวกว่าได้ก่อน!)*` 
+                            text: `🟢 [เปิดรับเดิมพันรอบใหม่]\n------------------------\n🎲 ขาทั้งหมด: **1 ถึง ${defaultMaxLegs}**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 ค้ำประกันต่อขา: **${requiredHolding} บาท**\n\n📌 *พิมพ์เลือกขาที่ต้องการได้เลย เช่น: 1, 2, 5 (ใครไวกว่าได้ก่อน!)*` 
                         };
                     }
                 }
@@ -255,10 +263,10 @@ app.post('/callback', async (req, res) => {
                             replyMessageObject = { type: 'text', text: "⚠️ รอบเดิมพันปิดอยู่แล้ว" };
                         } else {
                             isRoundOpen = false;
-                            let summary = `🔴 [ระบบตีไก่] ปิดรับเดิมพันแล้ว!\n🎲 ขาทั้งหมด: ${maxLegsCount} ขา (ขาละ ${currentBetPrice} บ.)\n📋 [รายการขาที่มีผู้ลงแข่งขัน]:\n`;
+                            let summary = `🔴 [ปิดรับเดิมพันแล้ว]\n🎲 ขาทั้งหมด: ${defaultMaxLegs} ขา (ขาละ ${defaultBetPrice} บ.)\n📋 [รายการขาที่มีผู้ลงแข่งขัน]:\n`;
                             let hasData = false;
                             
-                            for (let leg = 1; leg <= maxLegsCount; leg++) {
+                            for (let leg = 1; leg <= defaultMaxLegs; leg++) {
                                 if (occupiedLegs[leg]) {
                                     let u = usersWallets[occupiedLegs[leg]];
                                     summary += `▪️ ขา ${leg}: ${u.memberTitle}\n`;
@@ -269,7 +277,7 @@ app.post('/callback', async (req, res) => {
                             }
                             
                             if (!hasData) summary += "❌ ไม่มีใครลงเดิมพันในรอบนี้\n";
-                            replyMessageObject = { type: 'text', text: summary + `\n⏳ รอแอดมินสรุปผลไพ่ เช่น 'ผล: 53,d8,11,k9'` };
+                            replyMessageObject = { type: 'text', text: summary + `\n⏳ รอแอดมินใส่ผลไพ่ด้วยสัญลักษณ์ > เช่น:\n>7.5\n4/\n9/\n6` };
                         }
                     }
                 }
@@ -295,38 +303,47 @@ app.post('/callback', async (req, res) => {
                 }
 
                 // ==========================================
-                // PART 3: ตรวจผลไพ่ / คิดเงิน (คิดเฉพาะขาที่มีคน)
+                // PART 3: ตรวจผลไพ่แบบใหม่ (ขึ้นต้นด้วย >) / คิดเงิน (ok)
                 // ==========================================
-                else if (originalMsg.startsWith('ผล:') || originalMsg.startsWith('ผล ')) {
+                else if (originalMsg.startsWith('>')) {
                     if (!isAdmin) {
                         replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
                     } else {
-                        const resultStr = originalMsg.replace(/^ผล:\s*|^ผล\s+/i, '');
-                        const results = resultStr.split(','); 
+                        // แยกข้อความด้วยการเว้นบรรทัด และเว้นวรรค
+                        let rawContent = originalMsg.substring(1).trim();
+                        let rawTokens = rawContent.split(/[\s\n]+/);
 
-                        pendingResults = { results };
-                        let previewText = `🐓 [ตรวจผลไพ่ระบบตีไก่]\n------------------------\n`;
-                        
-                        for (let i = 0; i < results.length; i++) {
-                            let legNum = i + 1;
-                            let cardRes = parseCard(results[i]);
-                            let owner = occupiedLegs[legNum] ? usersWallets[occupiedLegs[legNum]].memberTitle : "ไม่มีผู้เล่น";
-                            previewText += `🔹 ขา ${legNum} (${owner}): ${cardRes.score} แต้ม (${cardRes.deng} เด้ง)\n`;
+                        let parsedList = [];
+                        for (let token of rawTokens) {
+                            if (token.trim() !== '') {
+                                parsedList.push(parseCardValue(token));
+                            }
                         }
 
-                        replyMessageObject = { type: 'text', text: previewText + `\n📢 หากถูกต้องพิมพ์ **OK** เพื่อคิดเงินชนไพ่ทุกคู่` };
+                        pendingResults = { parsedList };
+                        let previewText = `🐓 [ตรวจผลคะแนนตีไก่]\n------------------------\n`;
+                        
+                        for (let i = 0; i < parsedList.length; i++) {
+                            let legNum = i + 1;
+                            let cardRes = parsedList[i];
+                            let owner = occupiedLegs[legNum] ? usersWallets[occupiedLegs[legNum]].memberTitle : "ไม่มีผู้เล่น";
+                            let dengStr = cardRes.deng > 1 ? ` (${cardRes.deng} เด้ง)` : '';
+                            previewText += `🔹 ขา ${legNum} (${owner}): **${cardRes.score} แต้ม**${dengStr}\n`;
+                        }
+
+                        replyMessageObject = { type: 'text', text: previewText + `\n📢 หากถูกต้องพิมพ์ **OK** เพื่อคิดเงิน` };
                     }
                 }
                 else if (userMsg === 'ok') {
                     if (!isAdmin) {
                         replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
                     } else if (!pendingResults) {
-                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ⚠️ ไม่มีผลไพ่ค้างในระบบ` };
+                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ⚠️ ไม่มีผลคะแนนค้างในระบบ` };
                     } else {
-                        let { results } = pendingResults;
+                        let { parsedList } = pendingResults;
                         let parsedCards = {};
-                        for (let i = 0; i < results.length; i++) {
-                            parsedCards[i + 1] = parseCard(results[i]);
+                        for (let i = 0; i < parsedList.length; i++) {
+                            parsedCards[i + 1] = parsedList[i];
                         }
 
                         let summaryText = `📊 [สรุปผลคิดเงินป๊อกเด้งตีไก่]\n------------------------\n`;
@@ -353,7 +370,7 @@ app.post('/callback', async (req, res) => {
                                     let oppCard = parsedCards[oppLeg];
                                     if (!oppCard) continue;
 
-                                    let bet = currentBetPrice;
+                                    let bet = defaultBetPrice;
 
                                     if (myCard.score > oppCard.score) {
                                         let winAmt = bet * myCard.deng;
@@ -366,20 +383,20 @@ app.post('/callback', async (req, res) => {
                                 }
 
                                 totalNetWinLoss += legWinLoss;
-                                let sign = legWinLoss >= 0 ? `+${legWinLoss.toFixed(0)}` : `${legWinLoss.toFixed(0)}`;
+                                let sign = legWinLoss >= 0 ? `+${legWinLoss.toFixed(1)}` : `${legWinLoss.toFixed(1)}`;
                                 legReportText += `    ▪️ ขา ${myLeg} (${myCard.score} แต้ม): ${sign} บ.\n`;
                             }
 
                             let finalReturn = savedBet.holding + totalNetWinLoss;
                             pUser.balance += finalReturn;
 
-                            let overallSign = totalNetWinLoss >= 0 ? `+${totalNetWinLoss.toFixed(0)}` : `${totalNetWinLoss.toFixed(0)}`;
-                            summaryText += `👤 ${pUser.memberTitle}:\n${legReportText}    🏆 ผลรวมรอบนี้: **${overallSign} บาท**\n    💳 ยอดเงินคงเหลือล่าสุด: ${pUser.balance} บาท\n------------------------\n`;
+                            let overallSign = totalNetWinLoss >= 0 ? `+${totalNetWinLoss.toFixed(1)}` : `${totalNetWinLoss.toFixed(1)}`;
+                            summaryText += `👤 ${pUser.memberTitle}:\n${legReportText}    🏆 ผลรวมรอบนี้: **${overallSign} บาท**\n    💳 ยอดเงินคงเหลือล่าสุด: ${pUser.balance.toFixed(1)} บาท\n------------------------\n`;
                         }
 
-                        replyMessageObject = { type: 'text', text: summaryText + `✨ เคลียร์ยอดเรียบร้อย! ขาถูกรีเซ็ตแล้ว แอดมินเปิดรอบใหม่ได้เลย` };
+                        replyMessageObject = { type: 'text', text: summaryText + `✨ เคลียร์ยอดเรียบร้อย! พิมพ์ o เพื่อเปิดรอบถัดไป` };
                         
-                        // 🔄 เคลียร์ข้อมูลขาทั้งหมด เพื่อให้รอบถัดไปแย่งเลือกขาใหม่
+                        // 🔄 เคลียร์ข้อมูลขา เพื่อเตรียมเปิดรอบถัดไป
                         isRoundOpen = false;
                         occupiedLegs = {};
                         roundBets = {}; 
@@ -389,15 +406,14 @@ app.post('/callback', async (req, res) => {
                 else if (userMsg === 'no') {
                     if (isAdmin) {
                         pendingResults = null; 
-                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] 🛑 ยกเลิกผลไพ่แล้ว สามารถส่งผลไพ่ใหม่ได้เลย` };
+                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] 🛑 ยกเลิกผลคะแนนแล้ว ส่งผลคะแนนใหม่ได้เลย` };
                     }
                 }
 
                 // ==========================================
-                // PART 4: ผู้เล่นส่งคำสั่งเลือกขา (เช่น "1", "2,3", "ขา 1")
+                // PART 4: ผู้เล่นส่งคำสั่งเลือกขา (เช่น "1", "2,3")
                 // ==========================================
                 else {
-                    // ตรวจหาตัวเลขขาที่ผู้เล่นพิมพ์เข้ามา
                     let requestedLegs = originalMsg.match(/\d+/g);
                     if (requestedLegs && requestedLegs.length > 0) {
                         requestedLegs = requestedLegs.map(Number);
@@ -412,7 +428,7 @@ app.post('/callback', async (req, res) => {
                             let validLegsToTake = [];
 
                             for (let leg of requestedLegs) {
-                                if (leg < 1 || leg > maxLegsCount) {
+                                if (leg < 1 || leg > defaultMaxLegs) {
                                     invalidLegs.push(leg);
                                 } else if (occupiedLegs[leg] && occupiedLegs[leg] !== userId) {
                                     alreadyOccupiedLegs.push(leg);
@@ -422,12 +438,12 @@ app.post('/callback', async (req, res) => {
                             }
 
                             if (invalidLegs.length > 0) {
-                                replyMessageObject = { type: 'text', text: `${mentionText} ❌ ขา [${invalidLegs.join(', ')}] ไม่มีในระบบ! (รอบนี้เปิด 1 ถึง ${maxLegsCount} ขา)` };
+                                replyMessageObject = { type: 'text', text: `${mentionText} ❌ ขา [${invalidLegs.join(', ')}] ไม่มีในระบบ! (รอบนี้เปิด 1 ถึง ${defaultMaxLegs} ขา)` };
                             } else if (alreadyOccupiedLegs.length > 0) {
                                 replyMessageObject = { type: 'text', text: `${mentionText} ❌ ขา [${alreadyOccupiedLegs.join(', ')}] มีคนลงแล้ว! ไม่สามารถลงซ้ำได้` };
                             } else if (validLegsToTake.length > 0) {
                                 // 📐 สูตรเงินค้ำประกัน: (ขาทั้งหมด - 1) * 2 * ราคาต่อขา
-                                let requiredHoldingPerLeg = (maxLegsCount - 1) * 2 * currentBetPrice;
+                                let requiredHoldingPerLeg = (defaultMaxLegs - 1) * 2 * defaultBetPrice;
                                 let totalRequiredHolding = requiredHoldingPerLeg * validLegsToTake.length;
 
                                 if (user.balance < totalRequiredHolding) {
@@ -437,7 +453,7 @@ app.post('/callback', async (req, res) => {
                                     };
                                 } else {
                                     if (!roundBets[userId]) {
-                                        roundBets[userId] = { betPerKha: currentBetPrice, holding: 0, khasDetails: {} };
+                                        roundBets[userId] = { betPerKha: defaultBetPrice, holding: 0, khasDetails: {} };
                                     }
 
                                     validLegsToTake.forEach(k => {
@@ -450,7 +466,7 @@ app.post('/callback', async (req, res) => {
 
                                     replyMessageObject = { 
                                         type: 'text', 
-                                        text: `${mentionText} 🐓 [ลงขาสำเร็จ]\n📌 ขาที่เลือก: **[${validLegsToTake.join(', ')}]**\n💵 ราคาเดิมพัน: ขาละ ${currentBetPrice} บ.\n🔒 หักค้ำประกัน: ${totalRequiredHolding} บ.\n💳 ยอดเงินคงเหลือ: ${user.balance} บาท` 
+                                        text: `${mentionText} 🐓 [ลงขาสำเร็จ]\n📌 ขาที่เลือก: **[${validLegsToTake.join(', ')}]**\n💵 ราคาเดิมพัน: ขาละ ${defaultBetPrice} บ.\n🔒 หักค้ำประกัน: ${totalRequiredHolding} บ.\n💳 ยอดเงินคงเหลือ: ${user.balance} บาท` 
                                     };
                                 }
                             }
