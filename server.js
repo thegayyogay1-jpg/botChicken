@@ -14,6 +14,7 @@ let usersWallets = {};
 let nextMemberId = 1;
 
 let defaultBetPrice = 10;   // ราคาต่อขา (แอดมินปรับเปลี่ยนได้)
+let fixedRakePrice = 5;     // 💡 เพิ่มตัวแปรค่าต๋ง (บาท) - ค่าเริ่มต้น 5 บาท
 
 // ตัวแปรควบคุมรอบการเล่น
 let isRoundOpen = false;
@@ -274,6 +275,22 @@ app.post('/callback', async (req, res) => {
                         }
                     }
                 }
+                    else if (originalMsg.startsWith('ต') || originalMsg.startsWith('ต')) {
+    if (!isAdmin) {
+        replyMessageObject = { type: 'text', text: `❌ คุณไม่ใช่แอดมิน!` };
+    } else {
+        let matches = originalMsg.match(/\d+/g);
+        if (matches && matches.length >= 1) {
+            fixedRakePrice = parseInt(matches[0]);
+            replyMessageObject = { 
+                type: 'text', 
+                text: `⚙️ [แอดมิน - ตั้งค่าสำเร็จ]\n------------------------\n🏷️ กำหนดค่าต๋ง: **${fixedRakePrice} บาท / 1 เด้ง**\n📌 *(หากชนะ 2 เด้งขึ้นไปจะหัก: ${fixedRakePrice * 2} บาท)*` 
+            };
+        } else {
+            replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ ตัวอย่างการใช้: **ต 5** หรือ **ต 10**` };
+        }
+    }
+}
 
                 // ==========================================
 // PART 3: แอดมินจัดขาให้ผู้เล่น (`ใส่ขา [ขา] [ผู้เล่น]`)
@@ -334,6 +351,43 @@ else if (originalMsg.startsWith('@') || originalMsg.startsWith('@')) {
                 };
             }
         }
+    }
+}
+    // ==========================================
+// PART 3.1: คำสั่งลบขา / ล้างขา (แอดมิน)
+// ==========================================
+else if (originalMsg.startsWith('d')) {
+    if (!isAdmin) {
+        replyMessageObject = { type: 'text', text: `❌ คุณไม่ใช่แอดมิน!` };
+    } else {
+        // ดึงเลขขาที่ต้องการลบ เช่น "d 1 2 5"
+        let legsToRemove = originalMsg.match(/\d+/g);
+        if (!legsToRemove || legsToRemove.length === 0) {
+            replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ รูปแบบไม่ถูกต้อง ตัวอย่าง: **d 1** หรือ **d 1 2 5**` };
+        } else {
+            let removedList = [];
+            legsToRemove.forEach(num => {
+                let leg = parseInt(num);
+                if (occupiedLegs[leg]) {
+                    delete occupiedLegs[leg];
+                    removedList.push(leg);
+                }
+            });
+
+            if (removedList.length > 0) {
+                replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ✅ ลบผู้เล่นออกจากขา **[${removedList.join(', ')}]** เรียบร้อยแล้ว!` };
+            } else {
+                replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ⚠️ ขาที่ระบุไม่มีผู้เล่นอยู่แล้ว` };
+            }
+        }
+    }
+}
+else if (userMsg === 'rst' || userMsg === 'Rst') {
+    if (!isAdmin) {
+        replyMessageObject = { type: 'text', text: `❌ คุณไม่ใช่แอดมิน!` };
+    } else {
+        occupiedLegs = {};
+        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] 🧹 ล้างผู้เล่นออกจากขาทั้งหมดเรียบร้อยแล้ว` };
     }
 }
 
@@ -504,10 +558,19 @@ else if (userMsg === 'o') {
                                         let profit = winAmt;
 
                                         // 💡 [กฎต๋งใหม่]: คิดค่าน้ำเฉพาะคนแต้มสูงสุดประจำรอบ
-                                        if (myCard.score === maxScoreInRound) {
-                                            let rakeRate = (myCard.deng >= 2) ? 0.20 : 0.10; // 2 เด้งขึ้นไปหัก 20%, 1 เด้งหัก 10%
-                                            profit = winAmt * (1 - rakeRate);
-                                        }
+                                       if (myCard.score > oppCard.score) {
+    let winAmt = bet * myCard.deng;
+    let profit = winAmt;
+
+    // 💡 [คิดต๋งแบบบาท]: หักเฉพาะคนที่แต้มสูงสุดประจำรอบ
+    if (myCard.score === maxScoreInRound) {
+        // ชนะ 1 เด้ง หัก fixedRakePrice (เช่น 5 บ.)
+        // ชนะ 2 เด้งขึ้นไป หัก fixedRakePrice * 2 (เช่น 10 บ.)
+        let totalRake = (myCard.deng >= 2) ? (fixedRakePrice * 2) : fixedRakePrice;
+        
+        // กำหนดให้กำไรสุทธิลบค่าต๋งออกไป (กำไรต้องไม่ติดลบ)
+        profit = Math.max(0, winAmt - totalRake);
+    }
 
                                         legWinLoss += profit;
                                     } else if (myCard.score < oppCard.score) {
