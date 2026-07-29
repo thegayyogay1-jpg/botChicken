@@ -627,6 +627,7 @@ else if (userMsg === 'o') {
                     }
                 }
             }
+        }
 
             // ส่งข้อความตอบกลับไปยัง LINE
             if (replyMessageObject) {
