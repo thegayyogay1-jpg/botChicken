@@ -7,7 +7,7 @@ app.use(express.urlencoded({ extended: true }));
 // ==========================================
 // 📌 1. ตั้งค่าตัวแปรระบบและ Global Variables
 // ==========================================
-const ADMIN_LIST = ['U1234567890abcdef1234567890abcdef']; // 👈 ใส่ LINE User ID ของแอดมิน
+const ADMIN_LIST = ['U4a0d60e9af37aa9fe66cf3e97d01cddb']; // 👈 ใส่ LINE User ID ของแอดมิน
 const TOTAL_LEGS = 16; // 🔒 ฟิกไว้ที่ 16 ขาเสมอ
 
 let usersWallets = {};
