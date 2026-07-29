@@ -276,146 +276,146 @@ app.post('/callback', async (req, res) => {
                 }
 
                 // ==========================================
-                // PART 3: แอดมินจัดขาให้ผู้เล่น (`ใส่ขา [ขา] [ผู้เล่น]`)
-                // ==========================================
-                else if (originalMsg.startsWith('ใส่ขา') || originalMsg.startsWith('ลงขา')) {
-                    if (!isAdmin) {
-                        replyMessageObject = { type: 'text', text: `❌ คุณไม่ใช่แอดมิน!` };
-                    } else if (!isRoundOpen) {
-                        replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ⚠️ ยังไม่ได้เปิดรอบ! (พิมพ์ 'o' เพื่อเปิดรอบก่อน)` };
-                    } else {
-                        // แยกองค์ประกอบ เช่น "ใส่ขา 1 2 5 ต้น" -> ขา: [1, 2, 5], ผู้เล่น: "ต้น"
-                        let parts = originalMsg.replace('ใส่ขา', '').replace('ลงขา', '').trim().split(/\s+/);
-                        let legsToAssign = [];
-                        let userKeyword = "";
+// PART 3: แอดมินจัดขาให้ผู้เล่น (`ใส่ขา [ขา] [ผู้เล่น]`)
+// ==========================================
+else if (originalMsg.startsWith('@') || originalMsg.startsWith('@')) {
+    if (!isAdmin) {
+        replyMessageObject = { type: 'text', text: `❌ คุณไม่ใช่แอดมิน!` };
+    } else {
+        // แยกคำสั่ง เช่น "ใส่ขา 1 2 ต้น" -> ขา: [1, 2], ผู้เล่น: "ต้น"
+        let parts = originalMsg.replace('@', '').replace('@', '').trim().split(/\s+/);
+        let legsToAssign = [];
+        let userKeyword = "";
 
-                        for (let p of parts) {
-                            if (!isNaN(p)) {
-                                legsToAssign.push(parseInt(p));
-                            } else {
-                                userKeyword = p;
-                            }
-                        }
+        for (let p of parts) {
+            if (!isNaN(p)) {
+                legsToAssign.push(parseInt(p));
+            } else {
+                userKeyword = p;
+            }
+        }
 
-                        // กรณีถ้าผู้เล่นเป็นเลขลำดับ เช่น "ใส่ขา 1 2" -> ขา 1 ให้ลำดับ 2
-                        if (legsToAssign.length > 1 && !userKeyword) {
-                            userKeyword = legsToAssign.pop().toString();
-                        }
+        if (legsToAssign.length > 1 && !userKeyword) {
+            userKeyword = legsToAssign.pop().toString();
+        }
 
-                        let targetUserId = findUserIdByKeyword(userKeyword);
-                        let targetUser = targetUserId ? usersWallets[targetUserId] : null;
+        let targetUserId = findUserIdByKeyword(userKeyword);
+        let targetUser = targetUserId ? usersWallets[targetUserId] : null;
 
-                        if (!targetUser || legsToAssign.length === 0) {
-                            replyMessageObject = { 
-                                type: 'text', 
-                                text: `👑 [แอดมิน] ❌ รูปแบบไม่ถูกต้อง!\n📌 ตัวอย่างระบุชื่อ: **ใส่ขา 1 2 ต้น**\n📌 ตัวอย่างระบุเลขสมาชิก: **ใส่ขา 1 2**` 
-                            };
-                        } else if (targetUser.isLockWithdraw) {
-                            replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ ผู้เล่น [${getUserDisplayName(targetUser)}] กำลังล็อกกระเป๋าแจ้งถอนอยู่` };
-                        } else {
-                            let requiredHoldingPerLeg = (TOTAL_LEGS - 1) * 2 * defaultBetPrice;
-                            let invalidLegs = [];
-                            let validLegs = [];
+        if (!targetUser || legsToAssign.length === 0) {
+            replyMessageObject = { 
+                type: 'text', 
+                text: `👑 [แอดมิน] ❌ รูปแบบไม่ถูกต้อง!\n📌 ตัวอย่างระบุชื่อ: **ใส่ขา 1 2 ต้น**\n📌 ตัวอย่างระบุเลขสมาชิก: **ใส่ขา 1 2 2**` 
+            };
+        } else {
+            let invalidLegs = [];
+            let validLegs = [];
 
-                            for (let leg of legsToAssign) {
-                                if (leg < 1 || leg > TOTAL_LEGS) {
-                                    invalidLegs.push(leg);
-                                } else {
-                                    validLegs.push(leg);
-                                }
-                            }
-
-                            if (invalidLegs.length > 0) {
-                                replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ ขา [${invalidLegs.join(', ')}] ไม่ถูกต้อง (ระบบมีขา 1 ถึง ${TOTAL_LEGS})` };
-                            } else {
-                                let totalHoldingNeeded = requiredHoldingPerLeg * validLegs.length;
-
-                                if (targetUser.balance < totalHoldingNeeded) {
-                                    replyMessageObject = { 
-                                        type: 'text', 
-                                        text: `👑 [แอดมิน] ❌ ยอดเงินผู้เล่นไม่พอค้ำประกัน!\n👤 ผู้เล่น: **[${getUserDisplayName(targetUser)}]**\n💰 ต้องการ: ${totalHoldingNeeded} บาท (มีอยู่ ${targetUser.balance.toFixed(1)} บ.)` 
-                                    };
-                                } else {
-                                    if (!roundBets[targetUserId]) {
-                                        roundBets[targetUserId] = { betPerKha: defaultBetPrice, holding: 0, khasDetails: {} };
-                                    }
-
-                                    validLegs.forEach(k => {
-                                        // คืนเงินค้ำขาเดิมกรณีแอดมินย้ายขา/ทับขาเดิม
-                                        if (occupiedLegs[k] && occupiedLegs[k] !== targetUserId) {
-                                            let oldUid = occupiedLegs[k];
-                                            if (usersWallets[oldUid] && roundBets[oldUid]) {
-                                                usersWallets[oldUid].balance += requiredHoldingPerLeg;
-                                                roundBets[oldUid].holding -= requiredHoldingPerLeg;
-                                                delete roundBets[oldUid].khasDetails[k];
-                                            }
-                                        }
-
-                                        occupiedLegs[k] = targetUserId;
-                                        roundBets[targetUserId].khasDetails[k] = true;
-                                    });
-
-                                    roundBets[targetUserId].holding += totalHoldingNeeded;
-                                    targetUser.balance -= totalHoldingNeeded;
-
-                                    replyMessageObject = { 
-                                        type: 'text', 
-                                        text: `👑 [แอดมิน - ใส่ขาสำเร็จ]\n👤 ผู้เล่น: **[${getUserDisplayName(targetUser)}]**\n🎲 ได้รับขา: **[${validLegs.join(', ')}]**\n🔒 หักค้ำประกัน: ${totalHoldingNeeded} บ.\n💳 เงินคงเหลือ: ${targetUser.balance.toFixed(1)} บาท` 
-                                    };
-                                }
-                            }
-                        }
-                    }
+            for (let leg of legsToAssign) {
+                if (leg < 1 || leg > TOTAL_LEGS) {
+                    invalidLegs.push(leg);
+                } else {
+                    validLegs.push(leg);
                 }
+            }
+
+            if (invalidLegs.length > 0) {
+                replyMessageObject = { type: 'text', text: `👑 [แอดมิน] ❌ ขา [${invalidLegs.join(', ')}] ไม่ถูกต้อง (ระบบมีขา 1 ถึง ${TOTAL_LEGS})` };
+            } else {
+                // บันทึกขาเตรียมไว้ใน occupiedLegs (ยังไม่หักเงินค้ำ จนกว่าจะสั่งเปิดรอบ 'o')
+                validLegs.forEach(k => {
+                    occupiedLegs[k] = targetUserId;
+                });
+
+                let tName = getUserDisplayName(targetUser);
+                replyMessageObject = { 
+                    type: 'text', 
+                    text: `👑 [แอดมิน - จัดขาเรียบร้อย]\n👤 ผู้เล่น: **[${tName}]**\n🎲 ขาที่จัดไว้: **[${validLegs.join(', ')}]**\n\n📌 *ผูกขาเรียบร้อย! พิมพ์ 'o' เมื่อต้องการเปิดรอบและหักเงินค้ำ*` 
+                };
+            }
+        }
+    }
+}
 
                 // ==========================================
-                // PART 4: เปิดรอบ (o) / ปิดรอบ (x) / คืนโพย (r)
-                // ==========================================
-                else if (userMsg === 'o') {
-                    if (!isAdmin) {
-                        replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
-                    } else {
-                        isRoundOpen = true; 
-                        occupiedLegs = {}; 
-                        roundBets = {}; 
-                        pendingResults = null;
+// PART 4: เปิดรอบ (o) / ปิดรอบ (x)
+// ==========================================
+else if (userMsg === 'o') {
+    if (!isAdmin) {
+        replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
+    } else {
+        isRoundOpen = true; 
+        roundBets = {}; 
+        pendingResults = null;
 
-                        let requiredHoldingPerLeg = (TOTAL_LEGS - 1) * 2 * defaultBetPrice;
+        // 1. นับจำนวนขาที่มีผู้เล่นอยู่จริง
+        let activeLegs = [];
+        for (let leg = 1; leg <= TOTAL_LEGS; leg++) {
+            if (occupiedLegs[leg]) {
+                activeLegs.push(leg);
+            }
+        }
 
-                        replyMessageObject = { 
-                            type: 'text', 
-                            text: `🟢 [เปิดรับเดิมพันรอบใหม่]\n------------------------\n🎲 ขาทั้งหมด: **1 ถึง ${TOTAL_LEGS} ขา**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 เงินค้ำประกันต่อขา: **${requiredHoldingPerLeg} บาท**\n\n📌 *แอดมินพิมพ์ใส่ขาให้ผู้เล่นได้เลย เช่น: 'ใส่ขา 1 2 ต้น'*` 
-                        };
-                    }
+        let N = activeLegs.length;
+
+        if (N < 2) {
+            replyMessageObject = { 
+                type: 'text', 
+                text: `🟢 [เปิดรับเดิมพันรอบใหม่]\n------------------------\n⚠️ **ขาที่มีคนเล่นน้อยเกินไป (มีแค่ ${N} ขา)**\n📌 *กรุณาใช้คำสั่ง 'ใส่ขา' เพิ่มผู้เล่นอย่างน้อย 2 ขาขึ้นไปครับ*` 
+            };
+        } else {
+            // คำนวณเงินค้ำประกันต่อขา: (N - 1) * 2 * ราคา
+            let requiredHoldingPerLeg = (N - 1) * 2 * defaultBetPrice;
+
+            // จัดกลุ่มขาตามผู้เล่น
+            let playerLegs = {};
+            for (let leg of activeLegs) {
+                let uid = occupiedLegs[leg];
+                if (!playerLegs[uid]) playerLegs[uid] = [];
+                playerLegs[uid].push(leg);
+            }
+
+            let successReport = "";
+            let failedReport = "";
+
+            // วนตรวจสอบเงินค้ำประกันของผู้เล่นแต่ละคน
+            for (let uid in playerLegs) {
+                let pUser = usersWallets[uid];
+                let legs = playerLegs[uid];
+                let totalHoldingNeeded = requiredHoldingPerLeg * legs.length;
+
+                if (pUser && pUser.balance >= totalHoldingNeeded && !pUser.isLockWithdraw) {
+                    // เงินพอ -> หักค้ำประกัน และ บันทึกโพย
+                    pUser.balance -= totalHoldingNeeded;
+                    roundBets[uid] = {
+                        betPerKha: defaultBetPrice,
+                        holding: totalHoldingNeeded,
+                        khasDetails: {}
+                    };
+                    legs.forEach(k => {
+                        roundBets[uid].khasDetails[k] = true;
+                    });
+                    successReport += `▪️ [${getUserDisplayName(pUser)}]: ขา [${legs.join(', ')}] (ค้ำ ${totalHoldingNeeded} บ.)\n`;
+                } else {
+                    // เงินไม่พอ หรือโดนล็อกถอน -> ถอนขาออกชั่วคราวในรอบนี้
+                    legs.forEach(k => {
+                        delete occupiedLegs[k]; // ตัดขานี้ออกจากรอบนี้
+                    });
+                    let currentBal = pUser ? pUser.balance.toFixed(1) : 0;
+                    failedReport += `⚠️ [${getUserDisplayName(pUser)}]: เงินไม่พอค้ำประกัน (มี ${currentBal} / ขาด ${totalHoldingNeeded} บ.) ❌ **ตัดขารอบนี้ออก**\n`;
                 }
-                else if (userMsg === 'x') {
-                    if (!isAdmin) {
-                        replyMessageObject = { type: 'text', text: `${mentionText} ❌ คุณไม่ใช่แอดมิน!` };
-                    } else {
-                        if (!isRoundOpen) {
-                            replyMessageObject = { type: 'text', text: "⚠️ รอบเดิมพันปิดอยู่แล้ว" };
-                        } else {
-                            isRoundOpen = false;
-                            let summary = `🔴 [ปิดรับเดิมพันแล้ว]\n🎲 ขาทั้งหมด: ${TOTAL_LEGS} ขา (ขาละ ${defaultBetPrice} บ.)\n📋 [สรุปรายการขาในรอบนี้]:\n`;
-                            let activeLegCount = 0;
-                            
-                            for (let leg = 1; leg <= TOTAL_LEGS; leg++) {
-                                if (occupiedLegs[leg]) {
-                                    let u = usersWallets[occupiedLegs[leg]];
-                                    let uName = getUserDisplayName(u);
-                                    summary += `▪️ ขา ${leg}: **[${uName}]**\n`;
-                                    activeLegCount++;
-                                } else {
-                                    summary += `▫️ ขา ${leg}: [ว่าง/ไม่มีคนเล่น]\n`;
-                                }
-                            }
-                            
-                            summary += `\n🎮 รวมขาที่มีผู้เล่นจริง: **${activeLegCount} ขา**\n`;
-                            replyMessageObject = { type: 'text', text: summary + `\n⏳ รอแอดมินใส่ผลคะแนนด้วยสัญลักษณ์ > เช่น:\n>7.5\n4/\n9/\n6` };
-                        }
-                    }
-                }
+            }
 
+            let reportText = `🟢 [เปิดรับเดิมพันรอบใหม่สำเร็จ]\n------------------------\n🎲 ขาที่มีคนเล่นจริง: **${N} ขา**\n💵 ราคาเดิมพัน: **ขาละ ${defaultBetPrice} บาท**\n🔒 เงินค้ำประกันต่อขา: **${requiredHoldingPerLeg} บาท**\n\n📋 **[รายการผู้เล่นในรอบนี้]**:\n${successReport}`;
+
+            if (failedReport !== "") {
+                reportText += `\n🚨 **[สมาชิกเงินไม่พอ - ไม่นับผลรอบนี้]**:\n${failedReport}`;
+            }
+
+            replyMessageObject = { type: 'text', text: reportText };
+        }
+    }
+}
                 // ==========================================
                 // PART 5: ตรวจผลไพ่ (>) / คิดเงิน (ok)
                 // ==========================================
@@ -544,6 +544,11 @@ app.post('/callback', async (req, res) => {
                         }
 
                         replyMessageObject = { type: 'text', text: summaryText + `\n✨ เคลียร์ยอดเรียบร้อย! พิมพ์ o เพื่อเปิดรอบถัดไป` };
+
+                        // 🔄 คืนค่ากระดานค้างไว้สำหรับรอบถัดไป (ขาล็อค)
+                        isRoundOpen = false;
+                        pendingResults = null; 
+                        // *หมายเหตุ: ไม่ต้องสั่ง occupiedLegs = {} เพื่อให้ขาล็อคค้างไว้ให้แอดมินเปิดรอบหน้าได้เลย*
                         
                         // 🔄 เคลียร์ข้อมูลรอบปัจจุบัน
                         isRoundOpen = false;
